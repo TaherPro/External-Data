@@ -12,4 +12,4 @@ Technologies Used
 - JavaScript 
 
 How to Run Clone this repository or download the files. https://github.com/TaherPro/External-Data
-git remote add origin https://github.com/TaherPro/External-Dat
+
