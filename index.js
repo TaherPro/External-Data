@@ -1,11 +1,4 @@
-import {
-    appendCarousel,
-    clear,
-    createCarouselItem,
-    start,
-} from "./Carousel.js";
-
-// import axios from "axios";
+import { appendCarousel, clear, createCarouselItem, start } from "./Carousel.js";
 
 // The breed selection input element.
 const breedSelect = document.getElementById("breedSelect");
@@ -17,178 +10,188 @@ const progressBar = document.getElementById("progressBar");
 const getFavouritesBtn = document.getElementById("getFavouritesBtn");
 
 // Step 0: Store your API key here for reference and easy access.
-const API_KEY =
-    "live_oYy2dWvJzmU1YEKnTOcf707nAjtTTrqmWZNMdcTmbFZDH1CMBDOsdhVYbxMsXcsX";
+const API_KEY = "live_oYy2dWvJzmU1YEKnTOcf707nAjtTTrqmWZNMdcTmbFZDH1CMBDOsdhVYbxMsXcsX";
 
-/**
- * 1. Create an async function "initialLoad" that does the following:
- * - Retrieve a list of breeds from the cat API using fetch().
- * - Create new <options> for each of these breeds, and append them to breedSelect.
- *  - Each option should have a value attribute equal to the id of the breed.
- *  - Each option should display text equal to the name of the breed.
- * This function should execute immediately.
- */
-
-const headers = new Headers({
-    "Content-Type": "application/json",
-    "x-api-key": API_KEY,
+const api = axios.create({
+  baseURL: "https://api.thecatapi.com/v1",
+  headers: { "x-api-key": API_KEY, "Content-Type": "application/json" }
 });
 
-const requestOptions = {
-    method: "GET",
-    headers: headers,
-    redirect: "follow",
-};
+// Axios interceptors for timing and progress
+axios.interceptors.request.use(config => {
+  config.metadata = config.metadata || {};
+  config.metadata.startTime = new Date();
+  progressBar.style.width = "0%";
+  document.body.style.cursor = "progress"; 
+  console.log(`Request started at: ${config.metadata.startTime.toLocaleTimeString("en-US")}`);
+  return config;
+});
 
-// .then(response => response.text())
-// .then(result => console.log(result))
-// .catch(error => console.log('error', error));
+axios.interceptors.response.use(response => {
+  document.body.style.cursor = "default";
+  progressBar.style.width = "100%";
+  const start = response.config?.metadata?.startTime;
+  if (start) console.log(`Request took ${Date.now() - start.getTime()} ms.`);
+  return response;
+});
 
-initialLoad();
+function updateProgress(progressEvent) {
+  console.log("ProgressEvent obj:", progressEvent);
+  if (progressEvent.lengthComputable) {
+    const percent = Math.round((progressEvent.loaded / progressEvent.total) * 100);
+    progressBar.style.width = `${percent}%`;
+  }
+}
 
 async function initialLoad() {
-    try {
-        const response = await fetch("https://api.thecatapi.com/v1/images/search?size=med&mime_types=jpg&format=json&has_breeds=true&order=RANDOM&page=0&limit=5", requestOptions);
+  try {
+    const response = await api.get("/breeds");
+    const catBreeds = Array.isArray(response.data) ? response.data : [];
 
-        if (!response.ok) {
-            throw `Response status: ${response.status}`;
-        }
-        const result = await response.json();
-        console.log(result);
+    // Dropdown options for all breeds
+    const frag = document.createDocumentFragment();
+    catBreeds.forEach(catBreed => {
+      const option = document.createElement("option");
+      option.value = catBreed.id;
+      option.textContent = catBreed.name;
+      frag.appendChild(option);
+    });
+    breedSelect.appendChild(frag);
 
-        result.forEach((element) => {
-            const option = breedSelect.appendChild(
-                document.createElement("option")
-            );
-            option.value = element.breeds[0].id;
-            option.textContent = element.breeds[0].name;
-        });
-
-        carouselChange(breedSelect.value);
-
-        console.log(breedSelect);
-    } catch (error) {
-        console.log(error);
+    // Load first breed by default
+    const initialId = breedSelect.value || catBreeds[0]?.id;
+    if (initialId) {
+      breedSelect.value = initialId;
+      await updateCarousel(initialId);
+    } else {
+      infoDump.textContent = "No breeds available.";
     }
+  } catch (error) {
+    console.error(error);
+    infoDump.textContent = "Failed to load breeds";
+  }
 }
-/**
- * 2. Create an event handler for breedSelect that does the following:
- * - Retrieve information on the selected breed from the cat API using fetch().
- *  - Make sure your request is receiving multiple array items!
- *  - Check the API documentation if you're only getting a single object.
- * - For each object in the response array, create a new element for the carousel.
- *  - Append each of these new elements to the carousel.
- * - Use the other data you have been given to create an informational section within the infoDump element.
- *  - Be creative with how you create DOM elements and HTML.
- *  - Feel free to edit index.html and styles.css to suit your needs, but be careful!
- *  - Remember that functionality comes first, but user experience and design are important.
- * - Each new selection should clear, re-populate, and restart the Carousel.
- * - Add a call to this function to the end of your initialLoad function above to create the initial carousel.
- */
+initialLoad();
 
-breedSelect.addEventListener("change", (e) => {
-    if (e.target === e.currentTarget) {
-        carouselChange(e.target.value);
-    }
-});
+// Carousel 
+function createCarousel(data, type) {
+  clear();
+  if (!Array.isArray(data) || data.length === 0) {
+    const msg = type === "favourites"
+      ? "User does not have any favourite cat pics."
+      : "No images available for this selection.";
+    infoDump.appendChild(Object.assign(document.createElement("h1"), { textContent: msg }));
+    return;
+  }
 
-async function carouselChange(id) {
-    try {
-        const response = await fetch(`https://api.thecatapi.com/v1/images/search?breed_ids=${id}&limit=10`, requestOptions);
+  data.forEach(catResult => {
+    const url = catResult.url || catResult.image?.url || "https://via.placeholder.com/400x300?text=No+Image";
+    const alt = catResult.breeds?.[0]?.name ? `Picture of ${catResult.breeds[0].name}` : "Cat picture";
+    const id = catResult.id || catResult.image_id || "";
+    appendCarousel(createCarouselItem(url, alt, id));
+  });
 
-        if (!response.ok) {
-            throw `Response status: ${response.status}`;
-        }
-        const result = await response.json();
-        console.log(result);
-        clear();
-        result.forEach((element) => {
-            appendCarousel(
-                createCarouselItem(
-                    element.url,
-                    element.breeds[0].name,
-                    element.id
-                )
-            );
-        });
-
-        start();
-
-        console.log(breedSelect);
-    } catch (error) {
-        console.log(error);
-    }
+  if (type === "favourites") {
+    infoDump.appendChild(Object.assign(document.createElement("h1"), { textContent: "Viewing Favourite Cat Pics!" }));
+  }
+  start();
 }
 
-/**
- * 3. Fork your own sandbox, creating a new one named "JavaScript Axios Lab."
- */
-/**
- * 4. Change all of your fetch() functions to axios!
- * - axios has already been imported for you within index.js.
- * - If you've done everything correctly up to this point, this should be simple.
- * - If it is not simple, take a moment to re-evaluate your original code.
- * - Hint: Axios has the ability to set default headers. Use this to your advantage
- *   by setting a default header with your API key so that you do not have to
- *   send it manually with all of your requests! You can also set a default base URL!
- */
-/**
- * 5. Add axios interceptors to log the time between request and response to the console.
- * - Hint: you already have access to code that does this!
- * - Add a console.log statement to indicate when requests begin.
- * - As an added challenge, try to do this on your own without referencing the lesson material.
- */
+// Clear Breed info
+function clearInfo() {
+  while (infoDump.firstElementChild) infoDump.removeChild(infoDump.firstElementChild);
+}
 
-/**
- * 6. Next, we'll create a progress bar to indicate the request is in progress.
- * - The progressBar element has already been created for you.
- *  - You need only to modify its "width" style property to align with the request progress.
- * - In your request interceptor, set the width of the progressBar element to 0%.
- *  - This is to reset the progress with each request.
- * - Research the axios onDownloadProgress config option.
- * - Create a function "updateProgress" that receives a ProgressEvent object.
- *  - Pass this function to the axios onDownloadProgress config option in your event handler.
- * - console.log your ProgressEvent object within updateProgess, and familiarize yourself with its structure.
- *  - Update the progress of the request using the properties you are given.
- * - Note that we are not downloading a lot of data, so onDownloadProgress will likely only fire
- *   once or twice per request to this API. This is still a concept worth familiarizing yourself
- *   with for future projects.
- */
 
-/**
- * 7. As a final element of progress indication, add the following to your axios interceptors:
- * - In your request interceptor, set the body element's cursor style to "progress."
- * - In your response interceptor, remove the progress cursor style from the body element.
- */
-/**
- * 8. To practice posting data, we'll create a system to "favourite" certain images.
- * - The skeleton of this function has already been created for you.
- * - This function is used within Carousel.js to add the event listener as items are created.
- *  - This is why we use the export keyword for this function.
- * - Post to the cat API's favourites endpoint with the given ID.
- * - The API documentation gives examples of this functionality using fetch(); use Axios!
- * - Add additional logic to this function such that if the image is already favourited,
- *   you delete that favourite using the API, giving this function "toggle" functionality.
- * - You can call this function by clicking on the heart at the top right of any image.
- */
+function showInfo(breedInfo) {
+  clearInfo();
+  const frag = document.createDocumentFragment();
+
+  frag.appendChild(Object.assign(document.createElement("h1"), {id: "info-header",textContent: `Information on the ${breedInfo.name || "selected breed"}`}));
+  frag.appendChild(Object.assign(document.createElement("p"), {id: "cat-origin",innerHTML: `<strong>Origin:</strong> ${breedInfo.origin || "N/A"}`}));
+  frag.appendChild(Object.assign(document.createElement("p"), {id: "cat-weight",innerHTML: `<strong>Weight:</strong> ${breedInfo.weight?.imperial || "N/A"} lbs`}));
+  frag.appendChild(Object.assign(document.createElement("p"), {id: "cat-lifespan",innerHTML: `<strong>Life Span:</strong> ${breedInfo.life_span || "N/A"} years`}));
+  frag.appendChild(Object.assign(document.createElement("p"), {id: "cat-traits",innerHTML: `<strong>Traits:</strong> ${breedInfo.temperament || "N/A"}`}));
+  frag.appendChild(Object.assign(document.createElement("p"), {id: "cat-desc",textContent: breedInfo.description || ""}));
+  frag.appendChild(Object.assign(document.createElement("p"), {id: "wikipedia",innerHTML: `Click <a id="link" href="${breedInfo.wikipedia_url || "#"}" target="_blank" rel="noopener noreferrer">here</a> to learn more about the ${breedInfo.name}.`}));
+
+  infoDump.appendChild(frag);
+}
+
+// Update carousel 
+breedSelect.addEventListener("change", e => updateCarousel(e.target.value));
+
+async function updateCarousel(id) {
+  try {
+    if (!id) return;
+
+    const response = await api.get("/images/search", {
+      params: { breed_ids: id, limit: 10, format: "json" },
+      onDownloadProgress: updateProgress,
+    });
+
+    let images = response.data;
+
+    // Placeholder if there's no image
+    if (!images || images.length === 0) {
+      const breedName = breedSelect.selectedOptions[0].textContent;
+      images = [{
+        url: "https://via.placeholder.com/400x300?text=No+Image",
+        breeds: [{ name: breedName }],
+        id: id + "-placeholder"
+      }];
+    }
+
+    createCarousel(images, "breed");
+
+    const breedInfo = images?.[0]?.breeds?.[0] || {
+      name: breedSelect.selectedOptions[0].textContent,
+      origin: "N/A",
+      weight: { imperial: "N/A" },
+      life_span: "N/A",
+      temperament: "N/A",
+      description: "No description available.",
+      wikipedia_url: "#"
+    };
+
+    showInfo(breedInfo);
+
+  } catch (error) {
+    console.error("updateCarousel error:", error);
+    clearInfo();
+    infoDump.textContent = "Failed to load images for this breed.";
+  }
+}
+
+// Favourites 
 export async function favourite(imgId) {
-    // your code here
+  try {
+    const getFavResponse = await api.get("/favourites");
+    const existing = getFavResponse.data.find(f => f.image_id === imgId);
+
+    if (!existing) {
+      const addFavResponse = await api.post("/favourites", { image_id: imgId });
+      console.log("Added favorite:", addFavResponse.data);
+    } else {
+      const deleteFavResponse = await api.delete(`/favourites/${existing.id}`);
+      console.log("Deleted favorite:", deleteFavResponse.data);
+    }
+  } catch (error) {
+    console.error("favourite error:", error);
+  }
 }
 
-/**
- * 9. Test your favourite() function by creating a getFavourites() function.
- * - Use Axios to get all of your favourites from the cat API.
- * - Clear the carousel and display your favourites when the button is clicked.
- *  - You will have to bind this event listener to getFavouritesBtn yourself.
- *  - Hint: you already have all of the logic built for building a carousel.
- *    If that isn't in its own function, maybe it should be so you don't have to
- *    repeat yourself in this section.
- */
+getFavouritesBtn.addEventListener("click", getFavourites);
 
-/**
- * 10. Test your site, thoroughly!
- * - What happens when you try to load the Malayan breed?
- *  - If this is working, good job! If not, look for the reason why and fix it!
- * - Test other breeds as well. Not every breed has the same data available, so
- *   your code should account for this.
- */
+async function getFavourites(e) {
+  try {
+    if (e.target !== e.currentTarget) return;
+    const favourites = await api.get("/favourites", { onDownloadProgress: updateProgress });
+    clearInfo();
+    createCarousel(favourites.data, "favourites");
+  } catch (error) {
+    console.error("getFavourites error:", error);
+    clearInfo();
+    infoDump.textContent = "Failed to load favourites.";
+  }
+}
